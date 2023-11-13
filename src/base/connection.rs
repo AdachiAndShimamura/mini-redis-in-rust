@@ -1,9 +1,10 @@
 use crate::base::frame::Frame;
-use anyhow::Error;
+use anyhow::Result;
 use bytes::BytesMut;
 use std::io::Cursor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use log::{info};
 
 pub struct Connection {
     pub(crate) stream: TcpStream,
@@ -19,24 +20,42 @@ impl Connection {
         };
     }
 
-    pub async fn write_frame(&mut self, frame: Frame) -> Result<(), Error> {
-        let bytes = Frame::parse_to_bytes(frame)?;
+    pub async fn write_frame(&mut self, frame: Frame) -> Result<()> {
+        let bytes = Frame::parse_frame_to_bytes(frame)?;
+        info!("write data to frame:{:?}", bytes);
         self.stream.write(&*bytes).await?;
+        self.stream.flush().await?;
         Ok(())
     }
-    pub async fn read_frame(&mut self) -> Result<Frame, Error> {
+    pub async fn read_frame(&mut self) -> Result<Frame> {
         loop {
-            if let data = self.parse_frame().await? {
+            if let Ok(data) = self.try_parse_frame().await {
+                info!("success to parse a frame{:?}",data);
                 return Ok(data);
             }
-            self.stream.read(&mut self.buffer).await?;
+            let data_len=self.stream.read_buf(&mut self.buffer).await?;
+            info!("read data:{},stream:{:?}",data_len,self.buffer);
         }
     }
 
-    pub async fn parse_frame(&mut self) -> Result<Frame, Error> {
+    pub async fn get_state(&self) -> bool {
+        let state = self.stream.readable().await;
+        return match state {
+            Ok(_) => {
+                true
+            },
+            Err(_) => false,
+        };
+    }
+
+    pub async fn try_parse_frame(&mut self) -> Result<Frame> {
         let mut buffer_wrap = Cursor::new(&self.buffer[..]);
         Frame::check(&mut buffer_wrap)?;
+        info!("success to parse a frame");
         buffer_wrap.set_position(0);
-        Frame::parse(&mut buffer_wrap)
+        let res=Frame::parse(&mut buffer_wrap);
+        let position=buffer_wrap.position();
+        let _ = self.buffer.split_to(position as usize);
+        res
     }
 }

@@ -1,18 +1,10 @@
-use tokio::io;
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
+#![feature(future_join)]
+
+use std::future::join;
+use Rust_Redis::base::redis_server::RedisServer;
 
 #[tokio::main]
 async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6113").await?;
-    tokio::spawn(async {});
-    loop {
-        let (connect, _) = listener.accept().await?;
-        tokio::spawn(async move {
-            let (mut reader, mut writer) = io::split(connect);
-            if io::copy(&mut reader, &mut writer).await.is_err() {
-                eprint!("io copy error!");
-            }
-        })
-    }
+    let fut = RedisServer::connect_and_start("127.0.0.1:6379".parse().unwrap());
+    join!(fut);
 }

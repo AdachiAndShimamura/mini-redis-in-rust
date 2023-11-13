@@ -1,56 +1,25 @@
+use anyhow::Result;
 use bytes::Bytes;
-use tokio::sync::mpsc::channel;
-use tokio::sync::oneshot::channel as oneshot_channel;
-use Rust_Redis::base::cmd::command::{Command, CommandWrap};
-use Rust_Redis::base::cmd::set::Set;
+use std::net::SocketAddr;
+use std::thread::{sleep, Thread};
+use std::time::Duration;
+use Rust_Redis::base::redis_client::RedisClient;
 
 #[tokio::main]
-async fn main() {
-    let (mut tx, mut rx) = channel::<CommandWrap>(32);
-    let manager = tokio::spawn(async move {
-        let mut client = connect("127.0.0.1:6379").await.unwrap();
-        while let Some(command_wrap) = rx.recv().await {
-            let (command, channel) = (command_wrap.command, command_wrap.channel);
-            match command {
-                Command::Get(get) => {
-                    let res = client.get(&key).await.expect("get error");
-                    channel.send(Ok(res)).expect("TODO: panic message");
-                }
-                Command::Set(set) => {
-                    let res = client.set(&key, value).await.expect("set error");
-                    channel.send(Ok(None)).expect("TODO: panic message");
-                }
-            }
-        }
-    });
-    let tx2 = tx.clone();
-    let task1 = tokio::spawn(async move {
-        let (sender, receiver) = oneshot_channel();
-        tx.send(CommandWrap::new(
-            Command::Set("key1".to_string(), Bytes::from("value1")),
-            sender,
-        ))
+async fn main() -> Result<()> {
+    env_logger::init();
+    let mut client = RedisClient::connect("127.0.0.1:6379".parse().unwrap())
         .await
-        .expect("send error");
-        if let Ok(..) = receiver.await.unwrap() {
-            println!("ok");
-        }
-    });
-    let task2 = tokio::spawn(async move {
-        let (sender, receiver) = oneshot_channel();
-        tx2.send(CommandWrap::new(
-            Command::Set(Set {
-                key: "key2".to_string(),
-                value: Bytes::from("value2"),
-            }),
-            sender,
-        ))
-        .await
-        .expect("send error");
-        if let Ok(Some(res)) = receiver.await.unwrap() {
-            println!("{:?}", res);
-        }
-    });
-    task1.await.expect("task1 error");
-    task2.await.expect("task2 error");
+        .unwrap();
+    let re1=client.set("key1", Bytes::from("value1")).await?;
+    let re2=client.set("key2", Bytes::from("value2")).await?;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let res1 = client.get("key1").await.unwrap();
+    let res2 = client.get("key2").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    println!("{:?}", re1);
+    println!("{:?}", re2);
+    println!("{:?}", res1);
+    println!("{:?}", res2);
+    Ok(())
 }

@@ -1,11 +1,10 @@
 use crate::base::cmd::get::Get;
 use crate::base::cmd::set::Set;
 use crate::base::frame::Frame;
+use crate::base::frame::Frame::{Bulk, Simple};
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use futures::future::ok;
 use tokio::sync::oneshot;
-use crate::base::frame::Frame::{Bulk, Simple};
 
 pub type Responder<T> = oneshot::Sender<Result<T>>;
 
@@ -15,21 +14,21 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn parse_to_frame(&self)->Frame{
+    pub fn parse_to_frame(&self) -> Frame {
         match self {
             Command::Get(get) => {
-                let command=Simple("GET".to_string());
-                let data=Simple(get.key.clone());
-                let frame_vec=vec![command,data];
-                let frame=Frame::Array(frame_vec);
+                let command = Simple("GET".to_string());
+                let data = Simple(get.key.clone());
+                let frame_vec = vec![command, data];
+                let frame = Frame::Array(frame_vec);
                 frame
             }
             Command::Set(set) => {
-                let command=Simple("GET".to_string());
-                let key=Simple(set.key.clone());
-                let value=Bulk(set.value.clone());
-                let frame_vec=vec![command,key,value];
-                let frame=Frame::Array(frame_vec);
+                let command = Simple("SET".to_string());
+                let key = Simple(set.key.clone());
+                let value = Bulk(set.value.clone());
+                let frame_vec = vec![command, key, value];
+                let frame = Frame::Array(frame_vec);
                 frame
             }
         }
@@ -50,26 +49,14 @@ impl Command {
                 match command.as_str() {
                     "GET" => {
                         let next = iter.next().unwrap();
-                        let key = String::from_utf8(
-                            Command::parse_frame_to_bytes(next)
-                                .unwrap()
-                                .unwrap()
-                                .to_vec(),
-                        )
-                        .unwrap();
+                        let key = Frame::parse_to_string(next).unwrap();
                         Ok(Command::Get(Get { key }))
                     }
                     "SET" => {
                         let next = iter.next().unwrap();
-                        let key = String::from_utf8(
-                            Command::parse_frame_to_bytes(next)
-                                .unwrap()
-                                .unwrap()
-                                .to_vec(),
-                        )
-                        .unwrap();
+                        let key = Frame::parse_to_string(next).unwrap();
                         let next = iter.next().unwrap();
-                        let value = Command::parse_frame_to_bytes(next).unwrap().unwrap();
+                        let value = Frame::parse_to_bytes(next).unwrap().unwrap();
                         Ok(Command::Set(Set { key, value }))
                     }
                     _ => Err(anyhow!("error command!")),
@@ -77,17 +64,6 @@ impl Command {
             }
             _ => Err(anyhow!("error frame!not a command!")),
         };
-    }
-
-    pub fn parse_frame_to_bytes(frame: &Frame) -> Result<Option<Bytes>> {
-        match frame {
-            Frame::Simple(value) => Ok(Some(Bytes::from(value.clone()))),
-            Frame::Integer(value) => Ok(Some(Bytes::from(value.to_be_bytes().to_vec()))),
-            Frame::Null => Ok(None),
-            Frame::ErrorResult(value) => Ok(Some(Bytes::from(value.clone()))),
-            Frame::Bulk(value) => Ok(Some(Bytes::from(value.to_vec()))),
-            Frame::Array(value) => Ok(None),
-        }
     }
 
     pub fn self_to_frame(&self) {}

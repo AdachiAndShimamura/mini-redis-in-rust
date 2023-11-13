@@ -5,11 +5,11 @@ pub struct Set {
     pub value: Bytes,
 }
 
-impl Set{
-    pub fn new(key:&str,value:Bytes)->Set{
-        Set{
-            key:key.to_string(),
-            value
+impl Set {
+    pub fn new(key: &str, value: Bytes) -> Set {
+        Set {
+            key: key.to_string(),
+            value,
         }
     }
 }
