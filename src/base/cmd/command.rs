@@ -1,7 +1,10 @@
 use crate::base::cmd::get::Get;
+use crate::base::cmd::publish::Publish;
 use crate::base::cmd::set::Set;
+use crate::base::cmd::subscribe::Subscribe;
+use crate::base::cmd::unsubscribe::UnSubscribe;
 use crate::base::frame::Frame;
-use crate::base::frame::Frame::{Bulk, Simple};
+use crate::base::frame::Frame::{Array, Bulk, Simple};
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use tokio::sync::oneshot;
@@ -11,6 +14,10 @@ pub type Responder<T> = oneshot::Sender<Result<T>>;
 pub enum Command {
     Get(Get),
     Set(Set),
+    Subscribe(Subscribe),
+    UnSubscribe(UnSubscribe),
+    Publish(Publish),
+    Unknown,
 }
 
 impl Command {
@@ -31,6 +38,39 @@ impl Command {
                 let frame = Frame::Array(frame_vec);
                 frame
             }
+            Command::Subscribe(subscribe) => {
+                let command = Simple("SUBSCRIBE".to_string());
+                let data = Array(
+                    subscribe
+                        .channels
+                        .iter()
+                        .map(|value| Frame::Simple(value.clone()))
+                        .collect(),
+                );
+                let frame_vec = vec![command, data];
+                Frame::Array(frame_vec)
+            }
+            Command::UnSubscribe(unsubscribe) => {
+                let command = Simple("SUBSCRIBE".to_string());
+                let data = Array(
+                    unsubscribe
+                        .channels
+                        .iter()
+                        .map(|value| Frame::Simple(value.clone()))
+                        .collect(),
+                );
+                let frame_vec = vec![command, data];
+                Frame::Array(frame_vec)
+            }
+            Command::Publish(publish) => {
+                let command = Simple("SET".to_string());
+                let channel = Simple(publish.key.clone());
+                let value = Bulk(publish.value.clone());
+                let frame_vec = vec![command, channel, value];
+                let frame = Frame::Array(frame_vec);
+                frame
+            }
+            Command::Unknown => Frame::Null,
         }
     }
     pub fn from_frame(frame: Frame) -> Result<Command> {
@@ -59,7 +99,22 @@ impl Command {
                         let value = Frame::parse_to_bytes(next).unwrap().unwrap();
                         Ok(Command::Set(Set { key, value }))
                     }
-                    _ => Err(anyhow!("error command!")),
+                    "PUBLISH" => {
+                        let key = Frame::parse_to_string(iter.next().unwrap()).unwrap();
+                        let value = Frame::parse_to_bytes(iter.next().unwrap())
+                            .unwrap()
+                            .unwrap();
+                        Ok(Command::Publish(Publish { key, value }))
+                    }
+                    "SUBSCRIBE" => {
+                        let vec = Frame::parse_to_vec_string(iter.next().unwrap()).unwrap();
+                        Ok(Command::Subscribe(Subscribe { channels: vec }))
+                    }
+                    "UNSUBSCRIBE" => {
+                        let vec = Frame::parse_to_vec_string(iter.next().unwrap()).unwrap();
+                        Ok(Command::UnSubscribe(UnSubscribe { channels: vec }))
+                    }
+                    _ => Ok(Command::Unknown),
                 }
             }
             _ => Err(anyhow!("error frame!not a command!")),

@@ -1,7 +1,7 @@
 #![feature(future_join)]
 
 use std::future::join;
-use Rust_Redis::base::redis_server::RedisServer;
+use Rust_Redis::base::server::RedisServer;
 
 #[tokio::main]
 async fn main() {

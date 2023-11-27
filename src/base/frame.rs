@@ -3,14 +3,14 @@ use crate::base::frame::Frame::{Array, Bulk, ErrorResult, Integer, Null, Simple}
 use anyhow::Result;
 use anyhow::{anyhow, Error};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use log::{debug, info};
 use std::fmt::{Display, Write as fmt_writer};
 use std::i64;
 use std::io::{Cursor, Write};
-use log::{debug, info};
 
 pub const PARSE_ERROR: &str = "Parse Error";
 pub const WRITE_ERROR: &str = "Write Error";
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub enum Frame {
     Simple(String),
     Integer(i64),
@@ -22,60 +22,60 @@ pub enum Frame {
 impl Frame {
     pub fn check(src: &mut Cursor<&[u8]>) -> Result<()> {
         let data = get_u8(src)?;
-        debug!("{}",data);
+        debug!("{}", data);
         return match data {
             //字符串
             b'+' => {
                 get_line(src)?;
-                info!("{}",src.position());
+                info!("{}", src.position());
                 Ok(())
             }
             //整数
             b':' => {
                 get_u8(src)?;
                 get_message_i64(src)?;
-                info!("{}",src.position());
+                info!("{}", src.position());
                 Ok(())
             }
             //空
             b'_' => {
                 skip(src);
-                info!("{}",src.position());
+                info!("{}", src.position());
                 Ok(())
             }
             //错误信息
             b'-' => {
                 get_message_bytes(src)?;
                 get_line(src)?;
-                info!("{}",src.position());
+                info!("{}", src.position());
                 Ok(())
             }
             //多行字符串
             b'$' => {
                 get_message_len(src)?;
                 get_line(src)?;
-                info!("{}",src.position());
+                info!("{}", src.position());
                 Ok(())
             }
             //数组
             b'*' => {
                 debug!("frame:numbers");
-                if let Ok(len) = get_message_len(src){
-                    debug!("frame message len:{}",len);
+                if let Ok(len) = get_message_len(src) {
+                    debug!("frame message len:{}", len);
                     for _ in 0..len {
                         Frame::check(src)?;
-                        info!("{}",src.position());
+                        info!("{}", src.position());
                     }
                     Ok(())
-                }else {
+                } else {
                     debug!("failed to get len!");
                     Err(Error::msg("failed to check data"))
                 }
-
             }
             _ => {
-                info!("error message head:{}",data);
-                return Err(Error::msg("failed to check data"))},
+                info!("error message head:{}", data);
+                return Err(Error::msg("failed to check data"));
+            }
         };
     }
 
@@ -164,52 +164,38 @@ impl Frame {
         Ok(bytes)
     }
 
-    pub fn parse_to_string(frame:&Frame)->Result<String>{
+    pub fn parse_to_string(frame: &Frame) -> Result<String> {
         match frame {
-            Simple(val) => {
-                Ok(val.clone())
-            }
-            Integer(_) => {
-                Err(anyhow!("failed to parse to string!"))
-            }
-            Null => {
-                Err(anyhow!("failed to parse to string!"))
-            }
-            ErrorResult(val) => {
-                Err(anyhow!("{}",val))
-            }
-            Bulk(_) => {
-                Err(anyhow!("failed to parse to string!"))
-            }
-            Array(_) => {
-                Err(anyhow!("failed to parse to string!"))
-            }
+            Simple(val) => Ok(val.clone()),
+            Integer(val) => Ok(val.to_string()),
+            Bulk(bytes) => Ok(String::from_utf8(bytes.to_vec()).unwrap()),
+            _ => Err(anyhow!("failed to parse to string!")),
         }
     }
 
-    pub fn parse_to_bytes(frame:&Frame)->Result<Option<Bytes>>{
+    pub fn parse_to_bytes(frame: &Frame) -> Result<Option<Bytes>> {
         match frame.clone() {
-            Frame::Simple(val) => {
-                Ok(Some(Bytes::from(val)))
-            }
+            Frame::Simple(val) => Ok(Some(Bytes::from(val))),
             Frame::Integer(val) => {
-                let data=val.to_be_bytes();
-                let res=Bytes::from(data.to_vec());
+                let data = val.to_be_bytes();
+                let res = Bytes::from(data.to_vec());
                 Ok(Some(res))
             }
-            Frame::Null => {
-                Ok(None)
-            }
-            Frame::ErrorResult(val) => {
-                Ok(Some(Bytes::from(val)))
-            }
-            Frame::Bulk(val) => {
-                Ok(Some(val))
-            }
-            Frame::Array(val) => {
-                Err(anyhow!("error response!"))
-            }
+            Frame::Null => Ok(None),
+            Frame::ErrorResult(val) => Ok(Some(Bytes::from(val))),
+            Frame::Bulk(val) => Ok(Some(val)),
+            Frame::Array(val) => Err(anyhow!("error response!")),
         }
+    }
+
+    pub fn parse_to_vec_string(frame: &Frame) -> Result<Vec<String>> {
+        return match frame.clone() {
+            Array(array) => Ok(array
+                .iter()
+                .map(|value| Frame::parse_to_string(value).unwrap())
+                .collect()),
+            _ => Err(anyhow!("Error Frame Type! Excepted Vec, Found others!")),
+        };
     }
 }
 pub fn write_line(src: &[u8], target: &mut Vec<u8>) -> Result<()> {
@@ -236,18 +222,20 @@ pub fn get_u8(src: &mut Cursor<&[u8]>) -> Result<u8> {
     };
     Ok(src.get_u8())
 }
-pub fn get_message_bytes(src:&mut Cursor<&[u8]>)->Result<Bytes>{
-    let line=get_line(src)?;
+pub fn get_message_bytes(src: &mut Cursor<&[u8]>) -> Result<Bytes> {
+    let line = get_line(src)?;
     Ok(Bytes::copy_from_slice(line))
 }
-pub fn get_message_i64(src:&mut Cursor<&[u8]>)->Result<i64>{
+pub fn get_message_i64(src: &mut Cursor<&[u8]>) -> Result<i64> {
     let line = get_line(src)?;
-    Ok(i64::from_be_bytes([line[0],line[1],line[2],line[3],line[4],line[5],line[6],line[7]]))
+    Ok(i64::from_be_bytes([
+        line[0], line[1], line[2], line[3], line[4], line[5], line[6], line[7],
+    ]))
 }
-pub fn get_message_len(src:&mut Cursor<&[u8]>)->Result<u32>{
+pub fn get_message_len(src: &mut Cursor<&[u8]>) -> Result<u32> {
     let line = get_line(src)?;
 
-    Ok(u32::from_be_bytes([line[0],line[1],line[2],line[3]]))
+    Ok(u32::from_be_bytes([line[0], line[1], line[2], line[3]]))
 }
 
 pub fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8]> {
@@ -259,7 +247,11 @@ pub fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8]> {
     while start < end - 1 {
         if src.get_ref()[start] == b'\r' && src.get_ref()[start + 1] == b'\n' {
             let data = &src.get_ref()[src.position() as usize..start];
-            debug!("success to read line: start: {},end:{}",src.position(), start);
+            debug!(
+                "success to read line: start: {},end:{}",
+                src.position(),
+                start
+            );
             src.set_position((start + 2) as u64);
             return Ok(data);
         }
@@ -270,10 +262,10 @@ pub fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8]> {
 }
 
 #[test]
-pub fn test(){
+pub fn test() {
     use atoi::atoi;
-    let line:[u8;4] = [50,50,50,50];
-    let res=atoi::<u32>(line.as_ref()).ok_or_else(|| anyhow!("failed to parse line to u64"));
+    let line: [u8; 4] = [50, 50, 50, 50];
+    let res = atoi::<u32>(line.as_ref()).ok_or_else(|| anyhow!("failed to parse line to u64"));
     match res {
         Ok(value) => {
             println!("{}", value);
